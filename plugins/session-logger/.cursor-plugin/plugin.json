@@ -1,0 +1,10 @@
+{
+  "name": "session-logger",
+  "version": "1.0.0",
+  "description": "Automatically uploads Cursor session transcripts to Supabase",
+  "author": {
+    "name": "Justin Fleet"
+  },
+  "license": "MIT",
+  "keywords": ["logging", "observability", "transcripts", "sessions", "supabase"]
+}

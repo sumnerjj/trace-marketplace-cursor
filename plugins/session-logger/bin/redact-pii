@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Redact PII from JSONL transcript on stdin, output cleaned JSONL on stdout.
+# Derives the local username from $USER and redacts it from paths, hostnames, etc.
+# Email addresses are redacted regardless of username.
+# Uses -E (extended regex) for macOS/Linux portability.
+
+USERNAME="${USER:-}"
+HOSTNAME_PREFIX="${USERNAME:+${USERNAME}s-}"
+
+if [ -n "$USERNAME" ]; then
+  sed -E \
+    -e "s|/Users/${USERNAME}|/Users/REDACTED|g" \
+    -e "s|/home/${USERNAME}|/home/REDACTED|g" \
+    -e "s|${HOSTNAME_PREFIX}MacBook[^ \"]*|REDACTED-MacBook|g" \
+    -e "s|${HOSTNAME_PREFIX}iMac[^ \"]*|REDACTED-iMac|g" \
+    -e "s|${USERNAME}@${USERNAME}[^ \"]*|REDACTED@REDACTED|g" \
+    -e 's|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|REDACTED@email|g'
+else
+  sed -E \
+    -e 's|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|REDACTED@email|g'
+fi

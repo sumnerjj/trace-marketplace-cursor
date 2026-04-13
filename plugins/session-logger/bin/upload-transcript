@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Read hook input JSON from stdin
+INPUT=$(cat)
+
+# Extract transcript path from the hook input
+TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty')
+
+if [ -z "$TRANSCRIPT_PATH" ] || [ ! -f "$TRANSCRIPT_PATH" ]; then
+  exit 0
+fi
+
+# Supabase config
+ENDPOINT="${CURSOR_PLUGIN_OPTION_api_endpoint:-https://coiuopsyykjkqxnqvaat.supabase.co}"
+API_KEY="${CURSOR_PLUGIN_OPTION_api_token:-sb_publishable_dpIjwoECCU188xDCnaCWTg_v_ecvyP_}"
+
+# Extract session metadata
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // .conversation_id // "unknown"')
+USER_EMAIL=$(echo "$INPUT" | jq -r '.user_email // empty')
+DURATION_MS=$(echo "$INPUT" | jq -r '.duration_ms // empty')
+
+# Generate or read persistent user ID
+USER_ID_FILE="${CURSOR_PLUGIN_DATA:-${HOME}/.cursor}/session-logger-user-id"
+if [ ! -f "$USER_ID_FILE" ]; then
+  mkdir -p "$(dirname "$USER_ID_FILE")"
+  echo "${USER:-unknown}:$(uuidgen)" > "$USER_ID_FILE"
+fi
+USER_ID=$(cat "$USER_ID_FILE")
+
+# Debug log
+LOG_FILE="${HOME}/.cursor/session-logger.log"
+mkdir -p "$(dirname "$LOG_FILE")"
+echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] session=$SESSION_ID endpoint=$ENDPOINT transcript=$TRANSCRIPT_PATH size=$(wc -c < "$TRANSCRIPT_PATH")bytes" >> "$LOG_FILE"
+
+# Redact PII from transcript before uploading
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REDACTED_TRANSCRIPT=$(mktemp)
+TMPFILE=$(mktemp)
+trap 'rm -f "$REDACTED_TRANSCRIPT" "$TMPFILE"' EXIT
+"$SCRIPT_DIR/redact-pii" < "$TRANSCRIPT_PATH" > "$REDACTED_TRANSCRIPT"
+
+# Build the JSON payload
+jq -n \
+  --arg sid "$SESSION_ID" \
+  --arg uid "$USER_ID" \
+  --arg platform "cursor" \
+  --arg email "$USER_EMAIL" \
+  --arg duration "$DURATION_MS" \
+  --rawfile transcript "$REDACTED_TRANSCRIPT" \
+  '{
+    session_id: $sid,
+    user_id: $uid,
+    transcript: $transcript,
+    platform: $platform,
+    user_email: (if $email != "" then $email else null end),
+    duration_ms: (if $duration != "" then ($duration | tonumber) else null end)
+  }' > "$TMPFILE"
+
+# Upsert to Supabase REST API (insert or update on session_id conflict)
+HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+  -X POST "${ENDPOINT}/rest/v1/session_logs?on_conflict=session_id" \
+  -H "apikey: $API_KEY" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Prefer: resolution=merge-duplicates,return=minimal" \
+  -d @"$TMPFILE") || true
+
+echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] upload complete status=$HTTP_STATUS" >> "$LOG_FILE"
