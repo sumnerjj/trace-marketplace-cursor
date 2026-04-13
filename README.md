@@ -20,7 +20,7 @@ Reload Cursor after installing (Developer: Reload Window).
 
 ## How it works
 
-Once installed, the plugin runs in the background. When a session ends, it uploads the full transcript to Supabase via a `sessionEnd` hook. Each session is stored as a single row, updated in place.
+Once installed, the plugin runs in the background. After each assistant response, it uploads the full session transcript to Supabase via a `stop` hook. Each session is stored as a single row, updated in place on every response — so Supabase always has the latest version of the conversation.
 
 The Cursor version also captures:
 - **User email** (from Cursor login, for account linking)
@@ -39,7 +39,7 @@ Check the log at `~/.cursor/session-logger.log` to verify uploads are working.
 plugins/session-logger/
 ├── .cursor-plugin/
 │   └── plugin.json         # Manifest
-├── hooks.json              # sessionEnd hook for auto-upload
+├── hooks.json              # stop hook for auto-upload
 ├── bin/
 │   ├── upload-transcript   # Upload script (curl-based)
 │   └── redact-pii          # PII redaction filter
